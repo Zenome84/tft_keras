@@ -74,6 +74,8 @@ class VariableSelectionNetwork(tf.keras.layers.Layer):
         if self._with_context:
             v = inputs
         else:
+            if type(inputs) != list:
+              inputs = [inputs]
             v = tf.keras.layers.concatenate(inputs)
         v = self._grn_concat(v)
         v = tf.expand_dims(self._softmax(v), axis=-1)

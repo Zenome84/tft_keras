@@ -1,8 +1,8 @@
-
 import tensorflow as tf
 from tft.attention import InterpretableMultiHeadSelfAttention
 from tft.embedding import GenericEmbedding
-from tft.gating import GatedResidualNetwork, VariableSelectionNetwork, drop_gate_skip_norm
+from tft.gating import GatedResidualNetwork, VariableSelectionNetwork, GatedLinearUnit, drop_gate_skip_norm
+from tft.get_quantile_loss import get_quantile_loss
 
 layerLSTM = tf.keras.layers.LSTM
 layerInput = tf.keras.layers.Input
@@ -48,21 +48,21 @@ class TemporalFusionTransformer:
         self.dropout_rate = dropout_rate
 
         for input_name, input_data in self.input_spec['static'].items():
-            self.input_spec['static'][input_name]['input_tensor'] = layerInput(shape=[1])
+            self.input_spec['static'][input_name]['input_tensor'] = layerInput(shape=[1], name = input_name)
             self.input_spec['static'][input_name]['embedding_tensor'] = \
                 GenericEmbedding(
                     num_categories=input_data['num_categories'],
                     embedding_size=d_model
                 )(input_data['input_tensor'])
         for input_name, input_data in self.input_spec['observed'].items():
-            self.input_spec['observed'][input_name]['input_tensor'] = layerInput(shape=[self.lookback, 1])
+            self.input_spec['observed'][input_name]['input_tensor'] = layerInput(shape=[self.lookback, 1], name = input_name+'_observed')
             self.input_spec['observed'][input_name]['embedding_tensor'] = \
                 layerTimeDistributed(GenericEmbedding(
                     num_categories=input_data['num_categories'],
                     embedding_size=d_model
                 ))(input_data['input_tensor'])
         for input_name, input_data in self.input_spec['forecast'].items():
-            self.input_spec['forecast'][input_name]['input_tensor'] = layerInput(shape=[self.lookforward, 1])
+            self.input_spec['forecast'][input_name]['input_tensor'] = layerInput(shape=[self.lookforward, 1], name = input_name+'_forecast')
             self.input_spec['forecast'][input_name]['embedding_tensor'] = \
                 layerTimeDistributed(GenericEmbedding(
                     num_categories=input_data['num_categories'],
@@ -152,9 +152,13 @@ class TemporalFusionTransformer:
         attention_layer, self.attention_scores = InterpretableMultiHeadSelfAttention(
             self.att_heads, self.d_model, self.dropout_rate)(enriched_temporal_layer)
 
+        # Get length of relevant dimensions because tf.gather doesn't accept negative indices
+        attention_len = attention_layer.shape[-2]
+        enriched_temporal_len = enriched_temporal_layer.shape[-2]
+        
         temporal_attention = drop_gate_skip_norm(
-            attention_layer[..., -self.lookforward:, :],
-            enriched_temporal_layer[..., -self.lookforward:, :],
+            tf.gather(attention_layer, tf.range(attention_len-self.lookforward, attention_len), axis=-2),
+            tf.gather(enriched_temporal_layer, tf.range(enriched_temporal_len-self.lookforward, enriched_temporal_len), axis=-2),
             self.dropout_rate
         )
 
@@ -163,14 +167,15 @@ class TemporalFusionTransformer:
             dropout_rate=self.dropout_rate
         )(temporal_attention)
 
+        temporal_feature_len = temporal_feature_layer.shape[-2]
         final_layer = drop_gate_skip_norm(
             temporal_decoder,
-            temporal_feature_layer[..., -self.lookforward:, :],
+            tf.gather(temporal_feature_layer, tf.range(temporal_feature_len-self.lookforward, temporal_feature_len), axis=-2),
             self.dropout_rate
         )
 
         for target_name, target_data in self.target_spec.items():
-            self.target_spec[target_name]['target_tensor'] = layerDense(len(target_data['quantiles']))(final_layer)
+            self.target_spec[target_name]['target_tensor'] = layerDense(len(target_data['quantiles']), name = target_name, dtype = 'float32')(final_layer)
 
         self.model = tf.keras.Model(
             inputs=[
