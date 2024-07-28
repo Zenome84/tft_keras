@@ -29,9 +29,12 @@ class InterpretableMultiHeadSelfAttention(tf.keras.layers.Layer):
         key = self._reshape(self._keys(key))
 
         value = tf.repeat(tf.expand_dims(self._values(value), -2), tf.shape(key)[-2], -2)
+        
+        # Adjust cast type flexibly for AMP compatibility
+        sqrt_dtype = query.dtype
 
         outputs, attention = self._attention(
-            [query/tf.sqrt(tf.cast(tf.shape(key)[-1], float)), value, key],
+            [query/tf.sqrt(tf.cast(tf.shape(key)[-1], sqrt_dtype)), value, key],
             use_causal_mask=True, return_attention_scores=True
         )
 

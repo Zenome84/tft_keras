@@ -10,9 +10,10 @@ Additionally, the goal of this work is to stay as true to the original paper as 
 * A slimmer `InterpretableMultiHeadSelfAttention` layer that utilizes Keras Attention layer
 * Packaging both Linear/Categorical Embedding into a single `GenericEmbedding` layer
 
-The code was tested on TF-2.11
+The code was tested on TF-2.11 and TF-2.15.
+
+A demo on a small Kaggle dataset is provided in demo/
 
 TODO:
 * Implement wrappers for `fit` and `predict`
-* Implement quantile loss function
 * Add tests to reproduce paper's results using `tf.DataSet`
